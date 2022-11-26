@@ -4,6 +4,8 @@
 # https://github.com/frozenpandaman/s3s
 # License: GPLv3
 
+job_weapon = {".52加仑":".52 Gal",".96加仑":".96 Gal","N-ZAP85":"N-ZAP '85","专业模型枪MG":"Aerospray MG","喷射清洁枪":"Jet Squelcher","广域标记枪":"Sploosh-o-matic","开瓶喷泉枪":"Squeezer","斯普拉射击枪":"Splattershot","新叶射击枪":"Splattershot Jr.","窄域标记枪":"Splash-o-matic","英雄射击枪 复制":"Hero Shot Replica","顶尖射击枪":"Splattershot Pro","冲涂爆破枪":"Clash Blaster","快速爆破枪":"Rapid Blaster","快速爆破枪 精英":"Rapid Blaster Pro","新星爆破枪":"Luna Blaster","火热爆破枪":"Blaster","远距爆破枪":"Range Blaster","H3卷管枪":"H-3 Nozzlenose","L3卷管枪":"L-3 Nozzlenose","双重清洁枪":"Dualie Squelchers","四重弹跳手枪 黑":"Dark Tetra Dualies","开尔文525":"Glooga Dualies","斯普拉机动枪":"Splat Dualies","溅镀枪":"Dapple Dualies","可变式滚筒":"Flingza Roller","斯普拉滚筒":"Splat Roller","电动马达滚筒":"Dynamo Roller","碳纤维滚筒":"Carbon Roller","北斋":"Octobrush","巴勃罗":"Inkbrush","工作刮水刀":"Splatana Stamper","雨刷刮水刀":"Splatana Wiper","4K准星枪":"E-liter 4K Scope","14式竹筒枪·甲":"Bamboozler 14 Mk I","公升4K":"E-liter 4K","斯普拉准星枪":"Splatterscope","斯普拉蓄力狙击枪":"Splat Charger","高压油管枪":"Goo Tuber","鱿快洁α":"Classic Squiffer","回旋泼桶":"Sloshing Machine","洗笔桶":"Tri-Slosher","满溢泡澡泼桶":"Bloblobber","爆炸泼桶":"Explosher","飞溅泼桶":"Slosher","圆珠笔":"Ballpoint Splatling","斯普拉旋转枪":"Mini Splatling","桶装旋转枪":"Heavy Splatling","消防栓旋转枪":"Hydra Splatling","鹦鹉螺号47":"Nautilus 47","特工配件":"Undercover Brella","遮阳防空伞":"Splat Brella","露营防空伞":"Tenta Brella","LACT-450":"REEF-LUX 450","三发猎鱼弓":"Tri-Stringer","熊先生印章泼桶":"Grizzco Slosher","熊先生印章爆破枪":"Grizzco Blaster","熊先生印章猎鱼弓":"Grizzco Stringer","熊先生印章蓄力狙击枪":"Grizzco Charger","熊先生印章防空伞":"Grizzco Brella","随机":"random"}
+
 import argparse, base64, datetime, json, os, shutil, re, requests, sys, time, uuid
 from concurrent.futures import ThreadPoolExecutor
 from subprocess import call
@@ -915,7 +917,9 @@ def prepare_job_result(job, ismonitoring, isblackout, overview_data=None):
 
 		weapons = []
 		for weapon in player["weapons"]: # should always be returned in in english due to headbutt() using forcelang
-			wep_string = weapon["name"].lower().replace(" ", "_").replace("-", "_").replace(".", "").replace("'", "")
+			wep_chs = weapon["name"]
+			wep_eng = job_weapon[wep_chs]
+			wep_string = wep_eng.lower().replace(" ", "_").replace("-", "_").replace(".", "").replace("'", "")
 			if wep_string == "random": # NINTENDOOOOOOO
 				wep_string = None
 			weapons.append(wep_string)
@@ -1565,7 +1569,7 @@ def main():
 
 	# setup
 	#######
-	check_for_updates()
+	##check_for_updates()
 	check_statink_key()
 	set_language()
 
