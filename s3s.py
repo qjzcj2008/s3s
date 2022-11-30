@@ -13,7 +13,7 @@ import msgpack
 from packaging import version
 import iksm, utils
 
-A_VERSION = "0.2.0"
+A_VERSION = "0.2.2"
 
 DEBUG = False
 
@@ -172,7 +172,7 @@ def gen_new_tokens(reason, force=False):
 		print("Attempting to generate new gtoken and bulletToken...")
 		new_gtoken, acc_name, acc_lang, acc_country = iksm.get_gtoken(F_GEN_URL, SESSION_TOKEN, A_VERSION)
 		new_bullettoken = iksm.get_bullet(new_gtoken, APP_USER_AGENT, acc_lang, acc_country)
-	CONFIG_DATA["gtoken"] = new_gtoken # valid for 2 hours
+	CONFIG_DATA["gtoken"] = new_gtoken # valid for 6 hours
 	CONFIG_DATA["bullettoken"] = new_bullettoken # valid for 2 hours
 
 	global USER_LANG
@@ -182,6 +182,10 @@ def gen_new_tokens(reason, force=False):
 
 	write_config(CONFIG_DATA)
 
+	if new_bullettoken == "":
+		print("Wrote gtoken to config.txt, but could not generate bulletToken.")
+		print("Is SplatNet 3 undergoing maintenance?")
+		sys.exit(1)
 	if manual_entry:
 		print("Wrote tokens to config.txt.\n") # and updates acc_country if necessary...
 	else:
@@ -219,6 +223,8 @@ def fetch_json(which, separate=False, exportall=False, specific=False, numbers_o
 			queries.append("RegularBattleHistoriesQuery")
 		if specific in (True, "anarchy"):
 			queries.append("BankaraBattleHistoriesQuery")
+		if specific in (True, "x"):
+			queries.append("XBattleHistoriesQuery")
 		if specific in (True, "private") and not utils.custom_key_exists("ignore_private", CONFIG_DATA):
 			queries.append("PrivateBattleHistoriesQuery")
 		else:
@@ -311,6 +317,7 @@ def fetch_json(which, separate=False, exportall=False, specific=False, numbers_o
 		else:
 			combined = ink_list + salmon_list
 			return combined
+
 
 def fetch_detailed_result(is_vs_history, history_id, swim):
 	'''Helper function for fetch_json().'''
@@ -497,6 +504,10 @@ def prepare_battle_result(battle, ismonitoring, isblackout, overview_data=None):
 			payload["lobby"] = "splatfest_open"
 		elif utils.b64d(battle["vsMode"]["id"]) == 7:
 			payload["lobby"] = "splatfest_challenge" # pro
+	elif mode == "X_MATCH":
+		pass # TODO
+	elif mode == "LEAGUE":
+		pass # TODO
 
 	## RULE ##
 	##########
@@ -758,7 +769,14 @@ def prepare_job_result(job, ismonitoring, isblackout, overview_data=None):
 	job = job["coopHistoryDetail"]
 
 	full_id = utils.b64d(job["id"])
-	payload["uuid"] = str(uuid.uuid5(utils.SALMON_NAMESPACE, full_id[-52:]))
+	payload["uuid"] = str(uuid.uuid5(utils.SALMON_NAMESPACE, full_id))
+
+	job_rule = job["rule"]
+	if job_rule in ("PRIVATE_CUSTOM", "PRIVATE_SCENARIO"):
+		payload["private"] = "yes"
+	else:
+		payload["private"] = "yes" if job["jobPoint"] is None else "no"
+	is_private = True if payload["private"] == "yes" else False
 
 	payload["stage"] = utils.b64d(job["coopStage"]["id"])
 
@@ -771,12 +789,10 @@ def prepare_job_result(job, ismonitoring, isblackout, overview_data=None):
 	if payload["clear_waves"] < 0: # player dc'd
 		payload["clear_waves"] = None
 
-	elif payload["clear_waves"] != 3: # job defeat only
-		underperformed = False
-		for wave in job["waveResults"]:
-			if wave["teamDeliverCount"] < wave["deliverNorm"]:
-				underperformed = True
-		payload["fail_reason"] = "time_limit" if underperformed else "wipe_out"
+	elif payload["clear_waves"] != 3: # job failure
+		last_wave = job["waveResults"][payload["clear_waves"]]
+		if last_wave["teamDeliverCount"] >= last_wave["deliverNorm"]: # delivered more than quota, but still failed
+			payload["fail_reason"] = "wipe_out"
 
 	# xtrawave only
 	# https://stat.ink/api-info/boss-salmonid3
@@ -788,16 +804,17 @@ def prepare_job_result(job, ismonitoring, isblackout, overview_data=None):
 		payload["clear_extra"] = "yes" if job["bossResult"]["hasDefeatBoss"] else "no"
 
 	# https://stat.ink/api-info/salmon-title3
-	payload["title_after"]     = utils.b64d(job["afterGrade"]["id"])
-	payload["title_exp_after"] = job["afterGradePoint"]
+	if not is_private:
+		payload["title_after"]     = utils.b64d(job["afterGrade"]["id"])
+		payload["title_exp_after"] = job["afterGradePoint"]
 
-	point_diff = 20 if payload["clear_waves"] == 3 else -30 + (10 * job["resultWave"]) # +20 for win or -(30-10w) for loss
-	if payload["title_exp_after"] - point_diff >= 0: # before exp isn't negative, i.e. no title change
-		payload["title_before"]     = payload["title_after"]
-		payload["title_exp_before"] = payload["title_exp_after"] - point_diff
-	else: # ranked up
-		payload["title_before"]     = payload["title_after"] - 1
-		# exp...
+		point_diff = 20 if payload["clear_waves"] == 3 else -30 + (10 * job["resultWave"]) # +20 for win or -(30-10w) for loss
+		if payload["title_exp_after"] - point_diff >= 0: # before exp isn't negative, i.e. no title change
+			payload["title_before"]     = payload["title_after"]
+			payload["title_exp_before"] = payload["title_exp_after"] - point_diff
+		else: # ranked up
+			payload["title_before"]     = payload["title_after"] - 1
+			# exp...
 
 	geggs = job["myResult"]["goldenDeliverCount"]
 	peggs = job["myResult"]["deliverCount"]
@@ -873,9 +890,9 @@ def prepare_job_result(job, ismonitoring, isblackout, overview_data=None):
 	for teammate in job["memberResults"]:
 		players_json.append(teammate)
 
-	for player in players_json:
+	for i, player in enumerate(players_json):
 		player_info = {}
-		player_info["me"] = "yes" if player["player"]["isMyself"] else "no"
+		player_info["me"] = "yes" if i == 0 else "no"
 		player_info["name"] = player["player"]["name"]
 		player_info["number"] = player["player"]["nameId"]
 		player_info["splashtag_title"] = player["player"]["byname"]
@@ -907,13 +924,15 @@ def prepare_job_result(job, ismonitoring, isblackout, overview_data=None):
 		}
 		player_info["uniform"] = translate_slop[slop_num]
 
-		try:
-			special_id = utils.b64d(player["specialWeapon"]["id"])
-			player_info["special"] = translate_special[special_id]
-		except TypeError: # player.specialWeapon is null - player dc'd
-			pass
-		except KeyError: # invalid special weapon - likely defaulted to '1' before it could be assigned
-			pass
+		if player["specialWeapon"]: # if null, player dc'd
+			try:
+				special_id = player["specialWeapon"]["weaponId"] # post-v2.0.0 key
+			except KeyError:
+				special_id = utils.b64d(player["specialWeapon"]["id"])
+			try:
+				player_info["special"] = translate_special[special_id]
+			except KeyError: # invalid special weapon - likely defaulted to '1' before it could be assigned
+				pass
 
 		weapons = []
 		for weapon in player["weapons"]: # should always be returned in in english due to headbutt() using forcelang
@@ -957,9 +976,9 @@ def prepare_job_result(job, ismonitoring, isblackout, overview_data=None):
 	payload["bosses"] = bosses
 
 	payload["start_at"] = utils.epoch_time(job["playedTime"])
-	payload["private"] = "yes" if not job["jobPoint"] else "no"
 
-	payload["big_run"] = "no" # SR TODO
+	# payload["big_run"] = "yes" if job_rule == "BIG_RUN" else "no"
+	payload["big_run"] = "no" # TODO once stat.ink supports it
 
 	if isblackout:
 		# fix payload
@@ -1153,8 +1172,8 @@ def get_num_results(which):
 
 	noun = utils.set_noun(which)
 	try:
-		if which == "ink": # TODO update '150' numbers when x battles & league released
-			print("Note: 50 recent battles of each type (up to 150 total) may be uploaded by instead manually exporting data with " \
+		if which == "ink": # TODO update '200' number when league released
+			print("Note: 50 recent battles of each type (up to 200 total) may be uploaded by instead manually exporting data with " \
 				'\033[91m' + "-o" + '\033[0m' + ".\n")
 		n = int(input(f"Number of recent {noun} to upload (0-50)? "))
 	except ValueError:
@@ -1169,7 +1188,7 @@ def get_num_results(which):
 		elif which == "ink":
 			print("\nIn this mode, s3s can only fetch the 50 most recent battles (of any type) at once. " \
 				"To export & upload the 50 most recent battles of each type " \
-				"(Regular, Anarchy, and Private) for up to 150 results total, run the script with " \
+				"(Regular, Anarchy, X, and Private) for up to 200 results total, run the script with " \
 				'\033[91m' + "-o" + '\033[0m' + " and then " \
 				'\033[91m' + "-i results.json overview.json" + '\033[0m' + ".")
 		sys.exit(0)
@@ -1247,9 +1266,13 @@ def check_if_missing(which, isblackout, istestrun, skipprefetch):
 							continue
 
 				elif which == "salmon":
-					job_uuid = str(uuid.uuid5(utils.SALMON_NAMESPACE, full_id[-52:]))
-					if job_uuid in statink_uploads:
+					old_job_uuid = str(uuid.uuid5(utils.SALMON_NAMESPACE, full_id[-52:])) # used to do it incorrectly
+					new_job_uuid = str(uuid.uuid5(utils.SALMON_NAMESPACE, full_id))
+					if new_job_uuid in statink_uploads:
 						continue
+					if old_job_uuid in statink_uploads: # extremely low chance of conflicts... but allow force uploading if so
+						if not utils.custom_key_exists("force_uploads", CONFIG_DATA):
+							continue
 
 				if not printed:
 					printed = True
@@ -1288,7 +1311,7 @@ def check_for_new_results(which, cached_battles, cached_jobs, battle_wins, battl
 					foundany = True
 					if result["data"]["vsHistoryDetail"]["myTeam"]["judgement"] == "WIN":
 						outcome = "Victory"
-					elif result["data"]["vsHistoryDetail"]["myTeam"]["judgement"] == "LOSE":
+					elif result["data"]["vsHistoryDetail"]["myTeam"]["judgement"] in ("LOSE", "DEEMED_LOSE", "EXEMPTED_LOSE"):
 						outcome = "Defeat"
 					else:
 						outcome = "Draw"
@@ -1707,18 +1730,24 @@ def main():
 						continue
 					if old_uuid in statink_uploads:
 						if not utils.custom_key_exists("force_uploads", CONFIG_DATA):
-							print("Skipping already-uploaded battle.")
+							print("Skipping already-uploaded battle (use the `force_uploads` config key to override).")
 							continue
 					to_upload.append(result)
 
 			except KeyError: # salmon run job
 				if result["data"]["coopHistoryDetail"] is not None:
 					full_id = utils.b64d(result["data"]["coopHistoryDetail"]["id"])
-					the_uuid = str(uuid.uuid5(utils.SALMON_NAMESPACE, full_id[-52:]))
+					old_uuid = str(uuid.uuid5(utils.SALMON_NAMESPACE, full_id[-52:]))
+					new_uuid = str(uuid.uuid5(utils.SALMON_NAMESPACE, full_id))
 
-					if the_uuid in statink_uploads:
+					if new_uuid in statink_uploads:
 						print("Skipping already-uploaded job.")
 						continue
+					if old_uuid in statink_uploads:
+						if not utils.custom_key_exists("force_uploads", CONFIG_DATA):
+							print("Skipping already-uploaded job (use the `force_uploads` config key to override).")
+							continue
+
 					to_upload.append(result)
 
 		post_result(to_upload, False, blackout, test_run, overview_data=overview_file) # one or multiple; monitoring mode = False
