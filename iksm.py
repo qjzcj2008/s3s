@@ -5,8 +5,6 @@
 import base64, hashlib, json, os, re, sys, urllib
 import requests
 from bs4 import BeautifulSoup
-from s3s import F_GEN_URL as f_gen_url
-from s3s import A_VERSION as s3s_ver
 
 USE_OLD_NSOAPP_VER    = False # Change this to True if you're getting a "9403: Invalid token." error
 
@@ -29,6 +27,9 @@ session = requests.Session()
 
 def get_nsoapp_version():
 	'''Fetches the current Nintendo Switch Online app version from f token genaration provider or the Apple App Store and sets it globally.'''
+	from s3s import F_GEN_URL as f_gen_url
+	from s3s import A_VERSION as s3s_ver
+	#delay import to avoid circular import
 
 	if USE_OLD_NSOAPP_VER:
 		return NSOAPP_VER_FALLBACK
